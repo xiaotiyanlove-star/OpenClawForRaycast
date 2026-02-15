@@ -91,16 +91,21 @@ function formatTime(ts: number): string {
 
 /** 统一渲染消息 Markdown（用户和 AI 样式一致） */
 function renderMessageMarkdown(msg: DisplayMessage): string {
-  const icon = msg.role === "user" ? "👤" : "🤖";
+  const iconSource =
+    msg.role === "user" ? "avatar-user.png" : "avatar-bot.png";
+  const iconPath = `file://${environment.assetsPath}/${iconSource}`;
   const name = msg.role === "user" ? "You" : "OpenClaw";
   const time = formatTime(msg.timestamp);
-  // 使用数组 join 确保换行符正确
-  return [`### ${icon} ${name}  \`${time}\``, "", msg.content].join("\n");
+
+  // 使用 HTML img 标签实现自定义图标，宽 20px 以匹配文本大小
+  const header = `### <img src="${iconPath}" alt="${name}" width="20" height="20" /> ${name}  \`${time}\``;
+
+  return [header, "", msg.content].join("\n");
 }
 
 /** "思考中" 占位符 Markdown */
 const THINKING_MARKDOWN = [
-  "### 🤖 OpenClaw",
+  `### <img src="file://${environment.assetsPath}/avatar-bot.png" alt="OpenClaw" width="20" height="20" /> OpenClaw`,
   "",
   "⏳ 正在思考中，完成后自动显示内容...",
 ].join("\n");

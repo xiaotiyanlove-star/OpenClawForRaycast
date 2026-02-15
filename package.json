@@ -79,7 +79,8 @@
     "@types/ws": "^8.5.13",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
   },
   "scripts": {
     "build": "ray build",
@@ -87,6 +88,7 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "audit": "npm audit --omit=dev",
+    "test": "vitest run",
     "prepublishOnly": "echo \"Error: no publish\" && exit 1",
     "publish": "npx @raycast/api@latest publish"
   }

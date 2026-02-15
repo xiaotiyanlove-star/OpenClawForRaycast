@@ -29,6 +29,7 @@ import {
 import { stripThinkingBlocks } from "./markdown-utils";
 import { HISTORY_LIMIT } from "./config";
 import { isChatMessage } from "./types";
+import { GatewayError } from "./errors";
 import type {
   Preferences,
   DisplayMessage,
@@ -370,13 +371,13 @@ export default function ChatCommand() {
       if (!isMounted.current) return;
       setIsLoading(false);
       const msg = err instanceof Error ? err.message : String(err);
-      setConnPhase(
+      // 优先使用 GatewayError.code 判断状态
+      const isPairing =
+        (err instanceof GatewayError && err.code === "NOT_PAIRED") ||
         msg.includes("pairing") ||
-          msg.includes("not paired") ||
-          msg.includes("pending")
-          ? "pairing"
-          : "error",
-      );
+        msg.includes("not paired") ||
+        msg.includes("pending");
+      setConnPhase(isPairing ? "pairing" : "error");
       setConnError(msg);
       showToast({
         style: Toast.Style.Failure,
@@ -454,8 +455,16 @@ export default function ChatCommand() {
         sessionKey: sessionKeyRef.current,
         runId: streamingRunIdRef.current,
       });
-    } catch {
-      /* 忽略 */
+      showToast({
+        style: Toast.Style.Success,
+        title: "已停止生成",
+      });
+    } catch (err) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "停止失败",
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }, []);
 

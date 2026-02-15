@@ -135,6 +135,8 @@ export interface ChatSendParams {
 export interface ChatHistoryParams {
   sessionKey: string;
   limit?: number;
+  /** 加载此时间戳之前的消息（用于分页） */
+  before?: number;
 }
 
 /** chat.abort 参数 */

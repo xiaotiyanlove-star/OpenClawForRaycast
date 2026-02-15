@@ -118,6 +118,8 @@ type ConnPhase = "init" | "connecting" | "connected" | "pairing" | "error";
 export default function ChatCommand() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [searchText, setSearchText] = useState("");
   const [connPhase, setConnPhase] = useState<ConnPhase>("init");
   const [connError, setConnError] = useState("");
@@ -387,6 +389,81 @@ export default function ChatCommand() {
     }
   }, []);
 
+  const loadMoreHistory = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client?.isConnected || isLoadingMore || !hasMoreHistory) return;
+
+    const oldestTimestamp = messages.length > 0 ? messages[0].timestamp : undefined;
+    if (!oldestTimestamp) return;
+
+    setIsLoadingMore(true);
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "正在加载更多历史...",
+    });
+
+    try {
+      const histRaw = await client.request<ChatHistoryResponse>("chat.history", {
+        sessionKey: sessionKeyRef.current,
+        limit: HISTORY_LIMIT,
+        before: oldestTimestamp,
+      });
+
+      let entries: ChatMessage[] = [];
+      if (Array.isArray(histRaw)) {
+        entries = histRaw;
+      } else if (histRaw && typeof histRaw === "object") {
+        if ("messages" in histRaw && Array.isArray(histRaw.messages))
+          entries = histRaw.messages;
+        else if ("history" in histRaw && Array.isArray(histRaw.history))
+          entries = histRaw.history;
+        else if ("entries" in histRaw && Array.isArray(histRaw.entries))
+          entries = histRaw.entries;
+      }
+
+      if (entries.length === 0) {
+        setHasMoreHistory(false);
+        toast.style = Toast.Style.Success;
+        toast.title = "已加载全部历史";
+      } else {
+        const parsed = entries
+          .filter(isChatMessage)
+          .map(parseHistoryEntry)
+          .filter((m): m is DisplayMessage => m !== null);
+
+        if (parsed.length < HISTORY_LIMIT) {
+          setHasMoreHistory(false);
+        }
+
+        if (isMounted.current && parsed.length > 0) {
+          setMessages((prev) => {
+            const combined = [...parsed, ...prev];
+            const seen = new Set<string>();
+            const unique = combined.filter((m) => {
+              if (seen.has(m.id)) return false;
+              seen.add(m.id);
+              return true;
+            });
+            return unique.sort((a, b) => a.timestamp - b.timestamp);
+          });
+          toast.style = Toast.Style.Success;
+          toast.title = `已加载 ${parsed.length} 条旧消息`;
+        } else {
+          setHasMoreHistory(false);
+          toast.style = Toast.Style.Success;
+          toast.title = "没有更多历史消息了";
+        }
+      }
+    } catch (err) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "加载更多失败";
+      toast.message = err instanceof Error ? err.message : String(err);
+    } finally {
+      if (isMounted.current) setIsLoadingMore(false);
+    }
+  }, [messages, isLoadingMore, hasMoreHistory]);
+
+
   useEffect(() => {
     isMounted.current = true;
     connect();
@@ -567,6 +644,24 @@ export default function ChatCommand() {
             connPhase === "connected" ? "在上方输入消息开始对话" : "正在连接..."
           }
           icon={Icon.Message}
+        />
+      )}
+
+      {hasMoreHistory && messages.length >= HISTORY_LIMIT && (
+        <List.Item
+          key="load-more"
+          id="load-more"
+          title="点击加载更多历史消息..."
+          icon={Icon.CircleProgress}
+          actions={
+            <ActionPanel>
+              <Action
+                title="加载更多"
+                icon={Icon.Download}
+                onAction={loadMoreHistory}
+              />
+            </ActionPanel>
+          }
         />
       )}
 

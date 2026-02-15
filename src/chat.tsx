@@ -187,20 +187,32 @@ export default function ChatCommand() {
         },
         onError: (err) => {
           if (!isMounted.current) return;
-          let msg = err.message;
+          const raw = err.message;
 
-          // 友好错误提示
-          if (msg.includes("401") || msg.includes("403"))
-            msg = "认证失败：Token 无效或过期";
-          else if (msg.includes("ENOTFOUND") || msg.includes("ECONNREFUSED"))
-            msg = "无法连接到服务器，请检查 URL";
-          else if (msg.includes("1006")) msg = "网络连接意外中断 (1006)";
+          // ── 结构化错误分类 ──
+          let title = "连接错误";
+          let msg = raw;
 
-          // 特殊状态判断
+          if (raw.includes("1006") || raw.includes("ENOTFOUND") || raw.includes("ECONNREFUSED") || raw.includes("ETIMEDOUT")) {
+            title = "网络错误";
+            msg = "无法连接到 Gateway，请检查 URL 或网络连接";
+          } else if (raw.includes("401") || raw.includes("403") || raw.includes("认证失败") || raw.includes("unauthorized") || raw.includes("forbidden")) {
+            title = "认证失败";
+            msg = "Token 无效或已过期，请在设置中重新获取";
+          } else if (raw.includes("protocol") || raw.includes("协议")) {
+            title = "协议不兼容";
+            msg = "协议版本不匹配，请升级客户端或联系管理员";
+          } else if (raw.includes("最大重连次数")) {
+            title = "重连失败";
+            msg = raw;
+          }
+
+          // 特殊状态判断：pairing
           if (
-            msg.includes("pairing") ||
-            msg.includes("not paired") ||
-            msg.includes("pending")
+            raw.includes("pairing") ||
+            raw.includes("not paired") ||
+            raw.includes("pending") ||
+            raw.includes("未配对")
           ) {
             setConnPhase("pairing");
           } else {
@@ -209,7 +221,7 @@ export default function ChatCommand() {
           }
           showToast({
             style: Toast.Style.Failure,
-            title: "连接错误",
+            title,
             message: msg,
           });
         },

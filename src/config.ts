@@ -6,10 +6,11 @@
 export const DEFAULT_GATEWAY_URL = "wss://openclaw.example.com";
 
 /**
- * 客户端支持的最低协议版本
- * 实际使用的版本从 hello-ok 响应中动态获取
+ * 客户端支持的协议版本范围
+ * 实际使用的版本由服务端 hello-ok 响应中的 protocol 字段决定
  */
 export const MIN_PROTOCOL_VERSION = 3;
+export const MAX_PROTOCOL_VERSION = 99;
 
 // ===== 超时与重连 =====
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;

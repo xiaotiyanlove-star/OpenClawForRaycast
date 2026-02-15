@@ -24,6 +24,7 @@ import type {
 import type { ErrorShape } from "./types";
 import {
   MIN_PROTOCOL_VERSION,
+  MAX_PROTOCOL_VERSION,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_MAX_RECONNECTS,
   DEFAULT_TICK_INTERVAL_MS,
@@ -94,8 +95,8 @@ export class GatewayClient {
       password: "",
       requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       maxReconnects: DEFAULT_MAX_RECONNECTS,
-      onStateChange: () => {},
-      onError: () => {},
+      onStateChange: () => { },
+      onError: () => { },
       ...opts,
     };
   }
@@ -297,7 +298,7 @@ export class GatewayClient {
 
             const connectParams: ConnectParams = {
               minProtocol: MIN_PROTOCOL_VERSION,
-              maxProtocol: MIN_PROTOCOL_VERSION,
+              maxProtocol: MAX_PROTOCOL_VERSION,
               client: {
                 id: clientId,
                 displayName: `Raycast (${hostname})`,

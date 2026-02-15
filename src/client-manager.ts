@@ -17,6 +17,19 @@ let _client: GatewayClient | null = null;
 export function getClient(): GatewayClient {
   const prefs = getPreferenceValues<Preferences>();
 
+  // ── 配置格式预检 ──
+  if (!prefs.gatewayUrl?.trim()) {
+    throw new Error("Gateway URL 未配置，请在扩展设置中填写");
+  }
+  if (!prefs.gatewayToken?.trim()) {
+    throw new Error("Gateway Token 未配置，请在扩展设置中填写");
+  }
+  try {
+    new URL(prefs.gatewayUrl);
+  } catch {
+    throw new Error("Gateway URL 格式错误，应为 ws:// 或 wss:// 开头的完整地址");
+  }
+
   if (_client && _client.isConnected) {
     return _client;
   }

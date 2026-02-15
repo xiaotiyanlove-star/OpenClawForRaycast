@@ -21,6 +21,19 @@ import type {
   EventFrame,
   GatewayFrame,
 } from "./types";
+import {
+  PROTOCOL_VERSION,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_MAX_RECONNECTS,
+  DEFAULT_TICK_INTERVAL_MS,
+  RECONNECT_BASE_DELAY_MS,
+  RECONNECT_MAX_DELAY_MS,
+  CLIENT_ID,
+  CLIENT_MODE,
+  CLIENT_VERSION,
+  USER_AGENT_PREFIX,
+  DEFAULT_SCOPES,
+} from "./config";
 
 /** 连接状态 */
 export type ConnectionState =
@@ -55,13 +68,6 @@ export interface GatewayClientOptions {
   onError?: (error: Error) => void;
 }
 
-/** 协议版本（与 Gateway 匹配） */
-const PROTOCOL_VERSION = 3;
-/** 默认请求超时 */
-const DEFAULT_TIMEOUT_MS = 30_000;
-/** 最大重连次数 */
-const DEFAULT_MAX_RECONNECTS = 10;
-
 let _idCounter = 0;
 function nextId(): string {
   return `raycast-${Date.now()}-${++_idCounter}`;
@@ -74,7 +80,7 @@ export class GatewayClient {
   private pendingRequests = new Map<string, PendingRequest>();
   private eventHandlers = new Map<string, Set<EventHandler>>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
-  private tickIntervalMs = 15_000;
+  private tickIntervalMs = DEFAULT_TICK_INTERVAL_MS;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private helloPayload: HelloOkPayload | null = null;
@@ -83,7 +89,7 @@ export class GatewayClient {
   constructor(opts: GatewayClientOptions) {
     this.opts = {
       password: "",
-      requestTimeoutMs: DEFAULT_TIMEOUT_MS,
+      requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       maxReconnects: DEFAULT_MAX_RECONNECTS,
       onStateChange: () => {},
       onError: () => {},
@@ -212,6 +218,7 @@ export class GatewayClient {
         ...(this.opts.token
           ? { Authorization: `Bearer ${this.opts.token}` }
           : {}),
+        "User-Agent": `${USER_AGENT_PREFIX}/${CLIENT_VERSION} (${os.platform() === "darwin" ? "macos" : os.platform()}; ${os.arch()}; ${os.release()})`,
       },
     });
     this.ws = ws;
@@ -243,14 +250,12 @@ export class GatewayClient {
 
           try {
             const signedAt = Date.now();
-            const clientId = "openclaw-control-ui";
-            const clientMode = "webchat";
+
+            const clientId = CLIENT_ID;
+            const clientMode = CLIENT_MODE;
             const role = "operator";
-            const scopes = [
-              "operator.admin",
-              "operator.approvals",
-              "operator.pairing",
-            ];
+            // 使用 config 中的默认 scopes
+            const scopes = DEFAULT_SCOPES;
 
             // 构建结构化 payload 并签名（与 Gateway 源码一致）
             const payload = buildDeviceAuthPayload({
@@ -288,7 +293,7 @@ export class GatewayClient {
               client: {
                 id: clientId,
                 displayName: `Raycast (${hostname})`,
-                version: "1.0.0",
+                version: CLIENT_VERSION,
                 platform: platform,
                 mode: clientMode,
               },
@@ -300,7 +305,7 @@ export class GatewayClient {
               },
               device: deviceAuth,
               locale: "zh-CN",
-              userAgent: `raycast-openclaw/1.0.0 (${platform}; ${arch}; ${release})`,
+              userAgent: `${USER_AGENT_PREFIX}/${CLIENT_VERSION} (${platform}; ${arch}; ${release})`,
             };
 
             connectReqId = nextId();
@@ -337,7 +342,8 @@ export class GatewayClient {
               if (payload?.type === "hello-ok") {
                 handshakeDone = true;
                 this.helloPayload = payload;
-                this.tickIntervalMs = payload.policy?.tickIntervalMs ?? 15_000;
+                this.tickIntervalMs =
+                  payload.policy?.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
                 this.reconnectAttempt = 0;
                 this.setState("connected");
                 this.startTickTimer();
@@ -495,8 +501,11 @@ export class GatewayClient {
       return;
     }
 
-    // 指数退避：1s, 2s, 4s, 8s, ... 最大 30s
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30_000);
+    // 指数退避
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempt),
+      RECONNECT_MAX_DELAY_MS,
+    );
     this.reconnectAttempt++;
 
     this.reconnectTimer = setTimeout(async () => {

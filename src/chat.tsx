@@ -26,11 +26,13 @@ import {
   generateIdempotencyKey,
 } from "./client-manager";
 import { stripThinkingBlocks } from "./markdown-utils";
+import { HISTORY_LIMIT } from "./config";
 import type {
   Preferences,
   DisplayMessage,
   ChatEventPayload,
   ChatMessage,
+  ChatHistoryResponse,
 } from "./types";
 import os from "os";
 
@@ -48,17 +50,16 @@ function extractTextContent(msg: ChatMessage | undefined): string {
   return "";
 }
 
-function parseHistoryEntry(entry: unknown): DisplayMessage | null {
-  if (!entry || typeof entry !== "object") return null;
-  const e = entry as Record<string, unknown>;
-  const role = (e.role as string) ?? "unknown";
+function parseHistoryEntry(entry: ChatMessage): DisplayMessage | null {
+  if (!entry) return null;
+  const role = entry.role ?? "unknown";
   if (role !== "user" && role !== "assistant") return null;
 
   let content = "";
-  if (typeof e.content === "string") {
-    content = e.content;
-  } else if (Array.isArray(e.content)) {
-    content = (e.content as Array<Record<string, unknown>>)
+  if (typeof entry.content === "string") {
+    content = entry.content;
+  } else if (Array.isArray(entry.content)) {
+    content = entry.content
       .filter((p) => p.type === "text" && typeof p.text === "string")
       .map((p) => p.text as string)
       .join("\n");
@@ -67,11 +68,11 @@ function parseHistoryEntry(entry: unknown): DisplayMessage | null {
 
   return {
     id:
-      (e.id as string) ??
+      (entry.id as string) ??
       `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     role: role as "user" | "assistant",
     content: stripThinkingBlocks(content),
-    timestamp: typeof e.ts === "number" ? (e.ts as number) : Date.now(),
+    timestamp: typeof entry.ts === "number" ? entry.ts : Date.now(),
   };
 }
 
@@ -289,20 +290,19 @@ export default function ChatCommand() {
 
       // ── 加载历史消息 ──
       try {
-        const histRaw = await client.request<unknown>("chat.history", {
+        const histRaw = await client.request<ChatHistoryResponse>("chat.history", {
           sessionKey: sessionKeyRef.current,
-          limit: 50,
+          limit: HISTORY_LIMIT,
         });
 
         // 兼容多种返回格式
-        let entries: unknown[] = [];
+        let entries: ChatMessage[] = [];
         if (Array.isArray(histRaw)) {
           entries = histRaw;
         } else if (histRaw && typeof histRaw === "object") {
-          const obj = histRaw as Record<string, unknown>;
-          if (Array.isArray(obj.messages)) entries = obj.messages;
-          else if (Array.isArray(obj.history)) entries = obj.history;
-          else if (Array.isArray(obj.entries)) entries = obj.entries;
+          if ("messages" in histRaw && Array.isArray(histRaw.messages)) entries = histRaw.messages;
+          else if ("history" in histRaw && Array.isArray(histRaw.history)) entries = histRaw.history;
+          else if ("entries" in histRaw && Array.isArray(histRaw.entries)) entries = histRaw.entries;
         }
 
         if (entries.length > 0) {

@@ -167,6 +167,13 @@ export interface ChatContentPart {
   [key: string]: unknown;
 }
 
+/** 历史记录响应（兼容多种格式） */
+export type ChatHistoryResponse =
+  | ChatMessage[]
+  | { messages: ChatMessage[] }
+  | { history: ChatMessage[] }
+  | { entries: ChatMessage[] };
+
 // ===== Sessions API =====
 
 /** sessions.list 参数 */

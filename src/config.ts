@@ -4,7 +4,7 @@
 
 // ===== Gateway 连接配置 =====
 export const DEFAULT_GATEWAY_URL = "wss://openclaw.example.com";
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 3;
 
 // ===== 超时与重连 =====
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;

@@ -341,7 +341,14 @@ export default function ChatCommand() {
             .map(parseHistoryEntry)
             .filter((m): m is DisplayMessage => m !== null);
           if (isMounted.current && parsed.length > 0) {
-            const sorted = parsed.sort((a, b) => a.timestamp - b.timestamp);
+            // 按 id 去重，防止重复显示
+            const seen = new Set<string>();
+            const unique = parsed.filter((m) => {
+              if (seen.has(m.id)) return false;
+              seen.add(m.id);
+              return true;
+            });
+            const sorted = unique.sort((a, b) => a.timestamp - b.timestamp);
             setMessages(sorted);
             setSelectedId(sorted[sorted.length - 1].id);
             showToast({

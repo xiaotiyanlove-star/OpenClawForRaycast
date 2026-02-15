@@ -22,6 +22,7 @@ import type {
   GatewayFrame,
 } from "./types";
 import type { ErrorShape } from "./types";
+import { GatewayError } from "./errors";
 import {
   MIN_PROTOCOL_VERSION,
   MAX_PROTOCOL_VERSION,
@@ -36,6 +37,12 @@ import {
   USER_AGENT_PREFIX,
   DEFAULT_SCOPES,
 } from "./config";
+
+// ===== 调试日志 =====
+const DEBUG = process.env.NODE_ENV !== "production";
+function debugLog(tag: string, ...args: unknown[]) {
+  if (DEBUG) console.log(`[GatewayClient:${tag}]`, ...args);
+}
 
 /** 连接状态 */
 export type ConnectionState =
@@ -72,7 +79,7 @@ export interface GatewayClientOptions {
 
 let _idCounter = 0;
 function nextId(): string {
-  return `raycast-${Date.now()}-${++_idCounter}`;
+  return `raycast-${Date.now()}-${++_idCounter}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export class GatewayClient {
@@ -133,10 +140,13 @@ export class GatewayClient {
 
   /** 断开连接 */
   disconnect(): void {
+    debugLog("disconnect", "主动断开连接");
     this.intentionalClose = true;
     this.clearReconnectTimer();
     this.clearTickTimer();
     this.clearPendingRequests(new Error("客户端主动断开连接"));
+    // 清理事件监听器，防止 handler 累积泄漏
+    this.eventHandlers.clear();
     if (this.ws) {
       this.ws.close(1000, "client disconnect");
       this.ws = null;
@@ -245,8 +255,9 @@ export class GatewayClient {
         let frame: GatewayFrame;
         try {
           frame = JSON.parse(data.toString()) as GatewayFrame;
-        } catch {
-          return; // 忽略非 JSON 帧
+        } catch (parseErr) {
+          debugLog("parse", "JSON 解析失败:", (parseErr as Error).message, data.toString().slice(0, 100));
+          return;
         }
 
         // ===== 处理 connect.challenge 事件 =====
@@ -256,66 +267,13 @@ export class GatewayClient {
         ) {
           const challenge = (frame as EventFrame).payload as ConnectChallenge;
           const nonce = challenge.nonce;
+          debugLog("challenge", "收到 connect.challenge, nonce:", nonce?.slice(0, 8) + "...");
 
           try {
-            const signedAt = Date.now();
-
-            const clientId = CLIENT_ID;
-            const clientMode = CLIENT_MODE;
-            const role = "operator";
-            // 使用 config 中的默认 scopes
-            const scopes = DEFAULT_SCOPES;
-
-            // 构建结构化 payload 并签名（与 Gateway 源码一致）
-            const payload = buildDeviceAuthPayload({
-              deviceId: identity.deviceId,
-              clientId,
-              clientMode,
-              role,
-              scopes,
-              signedAtMs: signedAt,
-              token: this.opts.token ?? null,
+            const connectParams = this.buildConnectParams(
+              identity,
               nonce,
-            });
-            const signature = signDevicePayload(
-              identity.privateKeyPem,
-              payload,
             );
-
-            const deviceAuth: DeviceAuth = {
-              id: identity.deviceId,
-              publicKey: identity.publicKey,
-              signature,
-              signedAt,
-              nonce,
-            };
-
-            const hostname = os.hostname().replace(/\.local$/, "");
-            const platform =
-              os.platform() === "darwin" ? "macos" : os.platform();
-            const arch = os.arch();
-            const release = os.release();
-
-            const connectParams: ConnectParams = {
-              minProtocol: MIN_PROTOCOL_VERSION,
-              maxProtocol: MAX_PROTOCOL_VERSION,
-              client: {
-                id: clientId,
-                displayName: `Raycast (${hostname})`,
-                version: CLIENT_VERSION,
-                platform: platform,
-                mode: clientMode,
-              },
-              role,
-              scopes,
-              auth: {
-                token: this.opts.token,
-                ...(this.opts.password ? { password: this.opts.password } : {}),
-              },
-              device: deviceAuth,
-              locale: "zh-CN",
-              userAgent: `${USER_AGENT_PREFIX}/${CLIENT_VERSION} (${platform}; ${arch}; ${release})`,
-            };
 
             connectReqId = nextId();
             const connectFrame: RequestFrame = {
@@ -327,12 +285,15 @@ export class GatewayClient {
 
             ws.send(JSON.stringify(connectFrame));
           } catch (err) {
+            debugLog("challenge", "签名失败:", err);
             if (!handshakeDone) {
               handshakeDone = true;
               reject(
-                new Error(
-                  `签名 challenge 失败: ${err instanceof Error ? err.message : String(err)}`,
-                ),
+                new GatewayError({
+                  message: `签名 challenge 失败: ${err instanceof Error ? err.message : String(err)}`,
+                  code: "SIGN_FAILED",
+                  cause: err,
+                }),
               );
               ws.close();
             }
@@ -346,49 +307,15 @@ export class GatewayClient {
 
           // 握手响应（匹配 connect 请求 ID）
           if (!handshakeDone && connectReqId && res.id === connectReqId) {
-            if (res.ok) {
-              const payload = res.payload as HelloOkPayload;
-              if (payload?.type === "hello-ok") {
-                handshakeDone = true;
-                this.helloPayload = payload;
-                // 动态协商协议版本
-                this._negotiatedProtocol =
-                  payload.protocol ?? MIN_PROTOCOL_VERSION;
-                this.tickIntervalMs =
-                  payload.policy?.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
-                // 处理服务端限流
-                if (payload.policy?.retryAfterMs) {
-                  this.tickIntervalMs = Math.max(
-                    this.tickIntervalMs,
-                    payload.policy.retryAfterMs,
-                  );
-                }
-                this.reconnectAttempt = 0;
-                this.setState("connected");
-                this.startTickTimer();
-
-                // 保存 deviceToken（如有）
-                if (payload.auth?.deviceToken) {
-                  saveDeviceToken(
-                    payload.auth.role,
-                    payload.auth.deviceToken,
-                    payload.auth.scopes,
-                  ).catch(() => {
-                    /* 静默 */
-                  });
-                }
-
-                resolve(payload);
-                return;
-              }
+            const result = this.processHandshakeResponse(res);
+            if (result.ok) {
+              handshakeDone = true;
+              resolve(result.payload!);
+            } else {
+              handshakeDone = true;
+              reject(result.error!);
+              ws.close();
             }
-
-            // 握手失败——根据错误类型给出精细提示
-            handshakeDone = true;
-            const errDetail = res.error as ErrorShape | undefined;
-            const errMsg = this.classifyError(errDetail);
-            reject(new Error(errMsg));
-            ws.close();
             return;
           }
 
@@ -427,10 +354,17 @@ export class GatewayClient {
       });
 
       ws.on("error", (err) => {
-        this.opts.onError(err);
+        debugLog("ws-error", err.message);
+        const wrapped = new GatewayError({
+          message: `WebSocket 错误: ${err.message}`,
+          code: "WS_ERROR",
+          retryable: true,
+          cause: err,
+        });
+        this.opts.onError(wrapped);
         if (!handshakeDone) {
           handshakeDone = true;
-          reject(err);
+          reject(wrapped);
         }
       });
 
@@ -455,8 +389,120 @@ export class GatewayClient {
     });
   }
 
+  // ===== 辅助方法（从 doConnect 拆分） =====
+
+  /**
+   * 构建 connect 请求参数
+   * 从 doConnect 拆出，便于阅读和单独测试
+   */
+  private buildConnectParams(
+    identity: { deviceId: string; publicKey: string; privateKeyPem: string },
+    nonce: string,
+  ): ConnectParams {
+    const signedAt = Date.now();
+    const clientId = CLIENT_ID;
+    const clientMode = CLIENT_MODE;
+    const role = "operator";
+    const scopes = DEFAULT_SCOPES;
+
+    const payload = buildDeviceAuthPayload({
+      deviceId: identity.deviceId,
+      clientId,
+      clientMode,
+      role,
+      scopes,
+      signedAtMs: signedAt,
+      token: this.opts.token ?? null,
+      nonce,
+    });
+    const signature = signDevicePayload(identity.privateKeyPem, payload);
+
+    const deviceAuth: DeviceAuth = {
+      id: identity.deviceId,
+      publicKey: identity.publicKey,
+      signature,
+      signedAt,
+      nonce,
+    };
+
+    const hostname = os.hostname().replace(/\.local$/, "");
+    const platform = os.platform() === "darwin" ? "macos" : os.platform();
+    const arch = os.arch();
+    const release = os.release();
+
+    return {
+      minProtocol: MIN_PROTOCOL_VERSION,
+      maxProtocol: MAX_PROTOCOL_VERSION,
+      client: {
+        id: clientId,
+        displayName: `Raycast (${hostname})`,
+        version: CLIENT_VERSION,
+        platform,
+        mode: clientMode,
+      },
+      role,
+      scopes,
+      auth: {
+        token: this.opts.token,
+        ...(this.opts.password ? { password: this.opts.password } : {}),
+      },
+      device: deviceAuth,
+      locale: "zh-CN",
+      userAgent: `${USER_AGENT_PREFIX}/${CLIENT_VERSION} (${platform}; ${arch}; ${release})`,
+    };
+  }
+
+  /**
+   * 处理握手响应
+   * 返回 { ok, payload, error } 结构，由 doConnect 统一控制流
+   */
+  private processHandshakeResponse(res: ResponseFrame): {
+    ok: boolean;
+    payload?: HelloOkPayload;
+    error?: GatewayError;
+  } {
+    if (res.ok) {
+      const payload = res.payload as HelloOkPayload;
+      if (payload?.type === "hello-ok") {
+        this.helloPayload = payload;
+        this._negotiatedProtocol = payload.protocol ?? MIN_PROTOCOL_VERSION;
+        this.tickIntervalMs =
+          payload.policy?.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
+        if (payload.policy?.retryAfterMs) {
+          this.tickIntervalMs = Math.max(
+            this.tickIntervalMs,
+            payload.policy.retryAfterMs,
+          );
+        }
+        this.reconnectAttempt = 0;
+        this.setState("connected");
+        this.startTickTimer();
+
+        if (payload.auth?.deviceToken) {
+          saveDeviceToken(
+            payload.auth.role,
+            payload.auth.deviceToken,
+            payload.auth.scopes,
+          ).catch(() => { /* 静默 */ });
+        }
+
+        debugLog("handshake", "握手成功, protocol:", payload.protocol, "connId:", payload.server?.connId);
+        return { ok: true, payload };
+      }
+    }
+
+    // 握手失败
+    const errDetail = res.error as ErrorShape | undefined;
+    const gwErr = this.classifyError(errDetail);
+    debugLog("handshake", "握手失败:", gwErr.message, gwErr.code);
+    return { ok: false, error: gwErr };
+  }
+
+  // ===== 内部状态管理 =====
+
   private setState(state: ConnectionState) {
     if (this.state !== state) {
+      debugLog("state", `${this.state} → ${state}`);
       this.state = state;
       this.opts.onStateChange(state);
     }
@@ -532,19 +578,21 @@ export class GatewayClient {
     if (this.reconnectAttempt >= this.opts.maxReconnects) {
       this.setState("disconnected");
       this.opts.onError(
-        new Error(
-          `已达最大重连次数 (${this.opts.maxReconnects})，请检查网络后手动重试`,
-        ),
+        new GatewayError({
+          message: `已达最大重连次数 (${this.opts.maxReconnects})，请检查网络后手动重试`,
+          code: "MAX_RECONNECTS",
+          retryable: false,
+        }),
       );
       return;
     }
 
-    // 指数退避
     const delay = Math.min(
       RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempt),
       RECONNECT_MAX_DELAY_MS,
     );
     this.reconnectAttempt++;
+    debugLog("reconnect", `第 ${this.reconnectAttempt} 次重连, 延迟 ${delay}ms`);
 
     this.reconnectTimer = setTimeout(async () => {
       try {
@@ -556,23 +604,31 @@ export class GatewayClient {
   }
 
   /**
-   * 根据错误结构分类，生成用户友好的错误消息
+   * 根据错误结构分类，返回结构化 GatewayError
    */
-  private classifyError(err: ErrorShape | undefined): string {
-    if (!err) return "握手失败 (未知错误)";
+  private classifyError(err: ErrorShape | undefined): GatewayError {
+    if (!err) {
+      return new GatewayError({ message: "握手失败 (未知错误)", code: "UNKNOWN" });
+    }
 
     const code = err.code?.toLowerCase() ?? "";
     const msg = err.message ?? "";
 
     if (code.includes("protocol") || msg.includes("protocol")) {
-      return `协议版本不兼容: ${msg}。请升级客户端或联系管理员。`;
+      return new GatewayError({
+        message: `协议版本不兼容: ${msg}。请升级客户端或联系管理员。`,
+        code: "PROTOCOL_MISMATCH",
+      });
     }
     if (
       code.includes("pair") ||
       code.includes("not_paired") ||
       msg.includes("pairing")
     ) {
-      return `设备未配对: ${msg}。请在管理后台批准此设备。`;
+      return new GatewayError({
+        message: `设备未配对: ${msg}。请在管理后台批准此设备。`,
+        code: "NOT_PAIRED",
+      });
     }
     if (
       code === "401" ||
@@ -581,12 +637,20 @@ export class GatewayClient {
       code.includes("unauthorized") ||
       code.includes("forbidden")
     ) {
-      return `认证失败: ${msg}。请检查 Token 是否有效或已过期。`;
+      return new GatewayError({
+        message: `认证失败: ${msg}。请检查 Token 是否有效或已过期。`,
+        code: "AUTH_FAILED",
+      });
     }
     if (err.retryable) {
-      return `服务暂时不可用: ${msg}。将自动重试...`;
+      return new GatewayError({
+        message: `服务暂时不可用: ${msg}。将自动重试...`,
+        code: "RETRYABLE",
+        retryable: true,
+        retryAfterMs: (err as unknown as Record<string, unknown>).retryAfterMs as number | undefined,
+      });
     }
 
-    return `连接失败: ${msg}`;
+    return new GatewayError({ message: `连接失败: ${msg}`, code: err.code ?? "UNKNOWN" });
   }
 }

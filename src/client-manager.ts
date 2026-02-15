@@ -6,6 +6,7 @@
 import { getPreferenceValues } from "@raycast/api";
 import { GatewayClient } from "./gateway-client";
 import { getStorageItem, setStorageItem, migrateStorageKeys } from "./storage";
+import { FALLBACK_SESSION_KEY } from "./config";
 import type { Preferences } from "./types";
 
 let _client: GatewayClient | null = null;
@@ -98,7 +99,7 @@ export async function getOrCreateSessionKey(
   }
 
   // 最终 fallback
-  return "ws:raycast:main";
+  return FALLBACK_SESSION_KEY;
 }
 
 /**

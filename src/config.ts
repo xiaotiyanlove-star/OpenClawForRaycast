@@ -25,6 +25,9 @@ export const RECONNECT_MAX_DELAY_MS = 30_000;
 export const HISTORY_LIMIT = 50;
 export const TOAST_DURATION_MS = 3000;
 
+/** Session Key 兜底值（创建会话失败时使用） */
+export const FALLBACK_SESSION_KEY = "ws:raycast:main";
+
 // ===== 存储 Keys =====
 // 修改此 key 会强制所有用户重新生成设备身份
 export const STORAGE_KEY_DEVICE_IDENTITY = "openclaw-device-identity-v3";

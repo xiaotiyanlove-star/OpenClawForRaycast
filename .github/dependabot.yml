@@ -1,0 +1,26 @@
+# Dependabot — npm 依赖自动更新
+version: 2
+updates:
+  # npm 依赖
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
+    # 忽略 Raycast 相关包的 major 版本（需手动测试）
+    ignore:
+      - dependency-name: "@raycast/*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions 版本
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - ci

@@ -5,7 +5,7 @@
 
 import { getPreferenceValues } from "@raycast/api";
 import { GatewayClient } from "./gateway-client";
-import { getStorageItem, setStorageItem } from "./storage";
+import { getStorageItem, setStorageItem, migrateStorageKeys } from "./storage";
 import type { Preferences } from "./types";
 
 let _client: GatewayClient | null = null;
@@ -52,6 +52,9 @@ export function destroyClient(): void {
 export async function getOrCreateSessionKey(
   client: GatewayClient,
 ): Promise<string> {
+  // 首次启动时清理旧版存储键
+  await migrateStorageKeys();
+
   const prefs = getPreferenceValues<Preferences>();
 
   if (prefs.sessionMode === "shared") {

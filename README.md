@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Raycast](https://img.shields.io/badge/Raycast-API%201.93+-red.svg)](https://developers.raycast.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/version-v2.0.0-green.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-v3.0.0-green.svg)](package.json)
 
 </div>
 
@@ -42,8 +42,8 @@
 ### 源码编译
 
 ```bash
-git clone https://gitlab.com/xiaotiyan/raycast-openclaw.git
-cd raycast-openclaw
+git clone https://github.com/xiaotiyanlove-star/OpenClawForRaycast.git
+cd OpenClawForRaycast
 npm install && npm run build
 ```
 
@@ -57,7 +57,12 @@ npm install && npm run build
 | :--- | :--- | :--- |
 | **Gateway URL** | OpenClaw Gateway 的 WebSocket 接入点 | `wss://api.openclaw.com` |
 | **Gateway Token** | 具有 Operator 权限的认证令牌 | `eyJh...` |
-| **Session Mode** | 会话隔离模式（推荐使用 Shared） | `Main Session (shared)` |
+| **Session Mode** | 会话隔离模式 | `Main Session (shared)` |
+
+> [!TIP]
+> **Session Mode 选择建议**：
+> - **Shared** （推荐）：与其他客户端共享会话上下文，适合多设备同步场景。
+> - **Independent**：独立会话，不与其他客户端共享上下文，适合需要隔离的场景。
 
 ## 🖥 使用指南
 

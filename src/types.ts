@@ -113,6 +113,8 @@ export interface HelloOkPayload {
     maxPayload: number;
     maxBufferedBytes: number;
     tickIntervalMs: number;
+    /** 服务端限流时返回，客户端应据此调整心跳/重连间隔 */
+    retryAfterMs?: number;
   };
 }
 
@@ -165,6 +167,26 @@ export interface ChatContentPart {
   type: string;
   text?: string;
   [key: string]: unknown;
+}
+
+/**
+ * 运行时类型守卫：验证 unknown 值是否为合法 ChatMessage
+ * 用于历史记录加载前的结构检查，避免断言错误
+ */
+export function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  // 必须包含 role 字段且为字符串
+  if (typeof obj.role !== "string") return false;
+  // content 可选，但若存在则必须为字符串或数组
+  if (
+    obj.content !== undefined &&
+    typeof obj.content !== "string" &&
+    !Array.isArray(obj.content)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** 历史记录响应（兼容多种格式） */

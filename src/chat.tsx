@@ -28,6 +28,7 @@ import {
 } from "./client-manager";
 import { stripThinkingBlocks } from "./markdown-utils";
 import { HISTORY_LIMIT } from "./config";
+import { isChatMessage } from "./types";
 import type {
   Preferences,
   DisplayMessage,
@@ -91,8 +92,7 @@ function formatTime(ts: number): string {
 
 /** 统一渲染消息 Markdown（用户和 AI 样式一致） */
 function renderMessageMarkdown(msg: DisplayMessage): string {
-  const iconSource =
-    msg.role === "user" ? "avatar-user.png" : "avatar-bot.png";
+  const iconSource = msg.role === "user" ? "avatar-user.png" : "avatar-bot.png";
   const iconPath = `file://${environment.assetsPath}/${iconSource}`;
   const name = msg.role === "user" ? "You" : "OpenClaw";
   const time = formatTime(msg.timestamp);
@@ -146,6 +146,11 @@ export default function ChatCommand() {
     if (!prefs.gatewayToken?.trim()) {
       setConnPhase("error");
       setConnError("Gateway Token 未配置，请在设置中填写");
+      return;
+    }
+    if (prefs.gatewayToken.trim().length < 10) {
+      setConnPhase("error");
+      setConnError("Gateway Token 格式异常（长度不足），请核实后重试");
       return;
     }
     try {
@@ -318,7 +323,9 @@ export default function ChatCommand() {
         }
 
         if (entries.length > 0) {
+          // 使用类型守卫过滤无效条目，避免断言错误
           const parsed = entries
+            .filter(isChatMessage)
             .map(parseHistoryEntry)
             .filter((m): m is DisplayMessage => m !== null);
           if (isMounted.current && parsed.length > 0) {

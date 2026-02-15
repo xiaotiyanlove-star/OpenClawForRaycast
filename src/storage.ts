@@ -4,6 +4,7 @@
  */
 
 import { LocalStorage } from "@raycast/api";
+import { DEPRECATED_STORAGE_KEYS, STORAGE_KEY_MIGRATED } from "./config";
 
 /**
  * 类型安全地读取存储项
@@ -36,4 +37,19 @@ export async function setStorageItem(
  */
 export async function removeStorageItem(key: string): Promise<void> {
   await LocalStorage.removeItem(key);
+}
+
+/**
+ * 存储键迁移：清理旧版本残留的设备身份数据
+ * 仅在首次升级时执行一次（通过标记键判断）
+ */
+export async function migrateStorageKeys(): Promise<void> {
+  const migrated = await LocalStorage.getItem<string>(STORAGE_KEY_MIGRATED);
+  if (migrated) return; // 已迁移，跳过
+
+  for (const key of DEPRECATED_STORAGE_KEYS) {
+    await LocalStorage.removeItem(key);
+  }
+
+  await LocalStorage.setItem(STORAGE_KEY_MIGRATED, "true");
 }

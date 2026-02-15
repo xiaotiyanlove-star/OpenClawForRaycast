@@ -21,8 +21,9 @@ import type {
   EventFrame,
   GatewayFrame,
 } from "./types";
+import type { ErrorShape } from "./types";
 import {
-  PROTOCOL_VERSION,
+  MIN_PROTOCOL_VERSION,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_MAX_RECONNECTS,
   DEFAULT_TICK_INTERVAL_MS,
@@ -85,6 +86,8 @@ export class GatewayClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private helloPayload: HelloOkPayload | null = null;
   private intentionalClose = false;
+  /** 从 hello-ok 动态协商得到的实际协议版本 */
+  private _negotiatedProtocol: number = MIN_PROTOCOL_VERSION;
 
   constructor(opts: GatewayClientOptions) {
     this.opts = {
@@ -110,6 +113,11 @@ export class GatewayClient {
   /** 是否已连接 */
   get isConnected(): boolean {
     return this.state === "connected";
+  }
+
+  /** 实际协商的协议版本（从 hello-ok 获取） */
+  get negotiatedProtocol(): number {
+    return this._negotiatedProtocol;
   }
 
   /** 连接到 Gateway */
@@ -288,8 +296,8 @@ export class GatewayClient {
             const release = os.release();
 
             const connectParams: ConnectParams = {
-              minProtocol: PROTOCOL_VERSION,
-              maxProtocol: PROTOCOL_VERSION,
+              minProtocol: MIN_PROTOCOL_VERSION,
+              maxProtocol: MIN_PROTOCOL_VERSION,
               client: {
                 id: clientId,
                 displayName: `Raycast (${hostname})`,
@@ -342,8 +350,18 @@ export class GatewayClient {
               if (payload?.type === "hello-ok") {
                 handshakeDone = true;
                 this.helloPayload = payload;
+                // 动态协商协议版本
+                this._negotiatedProtocol =
+                  payload.protocol ?? MIN_PROTOCOL_VERSION;
                 this.tickIntervalMs =
                   payload.policy?.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
+                // 处理服务端限流
+                if (payload.policy?.retryAfterMs) {
+                  this.tickIntervalMs = Math.max(
+                    this.tickIntervalMs,
+                    payload.policy.retryAfterMs,
+                  );
+                }
                 this.reconnectAttempt = 0;
                 this.setState("connected");
                 this.startTickTimer();
@@ -364,9 +382,10 @@ export class GatewayClient {
               }
             }
 
-            // 握手失败
+            // 握手失败——根据错误类型给出精细提示
             handshakeDone = true;
-            const errMsg = res.error?.message ?? "握手失败";
+            const errDetail = res.error as ErrorShape | undefined;
+            const errMsg = this.classifyError(errDetail);
             reject(new Error(errMsg));
             ws.close();
             return;
@@ -378,6 +397,20 @@ export class GatewayClient {
             this.pendingRequests.delete(res.id);
             clearTimeout(pending.timer);
             if (res.ok) {
+              // 检查 tick 响应中的 retryAfterMs 限流
+              const resPayload = res.payload as
+                | Record<string, unknown>
+                | undefined;
+              if (
+                resPayload?.retryAfterMs &&
+                typeof resPayload.retryAfterMs === "number"
+              ) {
+                this.tickIntervalMs = Math.max(
+                  this.tickIntervalMs,
+                  resPayload.retryAfterMs as number,
+                );
+                this.startTickTimer(); // 用新间隔重启
+              }
               pending.resolve(res.payload);
             } else {
               pending.reject(new Error(res.error?.message ?? "请求失败"));
@@ -497,7 +530,11 @@ export class GatewayClient {
   private scheduleReconnect() {
     if (this.reconnectAttempt >= this.opts.maxReconnects) {
       this.setState("disconnected");
-      this.opts.onError(new Error("超过最大重连次数"));
+      this.opts.onError(
+        new Error(
+          `已达最大重连次数 (${this.opts.maxReconnects})，请检查网络后手动重试`,
+        ),
+      );
       return;
     }
 
@@ -515,5 +552,40 @@ export class GatewayClient {
         // doConnect 失败会触发 ws.on("close")，自动继续重连
       }
     }, delay);
+  }
+
+  /**
+   * 根据错误结构分类，生成用户友好的错误消息
+   */
+  private classifyError(err: ErrorShape | undefined): string {
+    if (!err) return "握手失败 (未知错误)";
+
+    const code = err.code?.toLowerCase() ?? "";
+    const msg = err.message ?? "";
+
+    if (code.includes("protocol") || msg.includes("protocol")) {
+      return `协议版本不兼容: ${msg}。请升级客户端或联系管理员。`;
+    }
+    if (
+      code.includes("pair") ||
+      code.includes("not_paired") ||
+      msg.includes("pairing")
+    ) {
+      return `设备未配对: ${msg}。请在管理后台批准此设备。`;
+    }
+    if (
+      code === "401" ||
+      code === "403" ||
+      code.includes("auth") ||
+      code.includes("unauthorized") ||
+      code.includes("forbidden")
+    ) {
+      return `认证失败: ${msg}。请检查 Token 是否有效或已过期。`;
+    }
+    if (err.retryable) {
+      return `服务暂时不可用: ${msg}。将自动重试...`;
+    }
+
+    return `连接失败: ${msg}`;
   }
 }

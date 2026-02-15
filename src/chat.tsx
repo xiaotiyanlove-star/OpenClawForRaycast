@@ -290,19 +290,25 @@ export default function ChatCommand() {
 
       // ── 加载历史消息 ──
       try {
-        const histRaw = await client.request<ChatHistoryResponse>("chat.history", {
-          sessionKey: sessionKeyRef.current,
-          limit: HISTORY_LIMIT,
-        });
+        const histRaw = await client.request<ChatHistoryResponse>(
+          "chat.history",
+          {
+            sessionKey: sessionKeyRef.current,
+            limit: HISTORY_LIMIT,
+          },
+        );
 
         // 兼容多种返回格式
         let entries: ChatMessage[] = [];
         if (Array.isArray(histRaw)) {
           entries = histRaw;
         } else if (histRaw && typeof histRaw === "object") {
-          if ("messages" in histRaw && Array.isArray(histRaw.messages)) entries = histRaw.messages;
-          else if ("history" in histRaw && Array.isArray(histRaw.history)) entries = histRaw.history;
-          else if ("entries" in histRaw && Array.isArray(histRaw.entries)) entries = histRaw.entries;
+          if ("messages" in histRaw && Array.isArray(histRaw.messages))
+            entries = histRaw.messages;
+          else if ("history" in histRaw && Array.isArray(histRaw.history))
+            entries = histRaw.history;
+          else if ("entries" in histRaw && Array.isArray(histRaw.entries))
+            entries = histRaw.entries;
         }
 
         if (entries.length > 0) {

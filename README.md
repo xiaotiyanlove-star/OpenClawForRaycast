@@ -77,6 +77,21 @@ npm install && npm run build
 - 🟡 **Connecting**：正在建立 WebSocket 连接
 - 🔴 **Error**：连接失败（通常为网络或 Token 问题）
 - ⏳ **Pairing**：设备未认证，请在服务端批准配对请求
+- ⚪ **Disconnected**：连接已断开（正常状态）
+
+### 🔧 故障排查
+
+#### 1. Connection Error (1006)
+- **原因**：Gateway 服务不可达或网络中断。
+- **解决**：检查 `Gateway URL` 是否正确，确保能通过浏览器访问该地址。
+
+#### 2. Authentication Failed (401/403)
+- **原因**：Token 无效或已过期。
+- **解决**：重新生成 Token 并更新配置。
+
+#### 3. Pairing Stuck
+- **现象**：一直显示 "等待配对"。
+- **解决**：请联系管理员在 OpenClaw Control UI 中批准该设备的连接请求。批准后，扩展会自动重连。
 
 ## 🏗 技术架构
 

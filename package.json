@@ -7,7 +7,16 @@
   "author": "xiaotiyan",
   "categories": [
     "Productivity",
-    "Communication"
+    "Communication",
+    "Developer Tools"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "openclaw",
+    "llm",
+    "artificial intelligence",
+    "gateway"
   ],
   "license": "MIT",
   "commands": [

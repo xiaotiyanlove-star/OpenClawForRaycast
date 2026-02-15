@@ -18,6 +18,7 @@ import {
   Toast,
   getPreferenceValues,
   Color,
+  environment,
 } from "@raycast/api";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GatewayClient } from "./gateway-client";
@@ -533,9 +534,14 @@ export default function ChatCommand() {
         <List.Item
           key={msg.id}
           id={msg.id}
-          title={msg.role === "user" ? "👤 You" : "🤖 OpenClaw"}
+          title={msg.role === "user" ? "You" : "OpenClaw"}
           subtitle={truncate(msg.content, 50)}
-          icon={msg.role === "user" ? Icon.Person : Icon.ComputerChip}
+          icon={{
+            source:
+              msg.role === "user"
+                ? `${environment.assetsPath}/avatar-user.png`
+                : `${environment.assetsPath}/avatar-bot.png`,
+          }}
           accessories={[{ text: formatTime(msg.timestamp) }]}
           detail={<List.Item.Detail markdown={renderMessageMarkdown(msg)} />}
           actions={
@@ -562,9 +568,12 @@ export default function ChatCommand() {
       {isStreaming && (
         <List.Item
           id="streaming-placeholder"
-          title="🤖 OpenClaw"
+          title="OpenClaw"
           subtitle="思考中..."
-          icon={{ source: Icon.CircleProgress, tintColor: Color.Blue }}
+          icon={{
+            source: `${environment.assetsPath}/avatar-bot.png`,
+            tintColor: undefined,
+          }}
           accessories={[{ tag: { value: "生成中", color: Color.Blue } }]}
           detail={<List.Item.Detail markdown={THINKING_MARKDOWN} />}
         />

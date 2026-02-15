@@ -1,0 +1,7 @@
+node_modules
+.DS_Store
+dist
+*.log
+.raycast
+raycast-env.d.ts
+test-connection.ts
